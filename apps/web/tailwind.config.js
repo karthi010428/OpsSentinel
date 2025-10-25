@@ -20,3 +20,5 @@ module.exports = {
   },
   plugins: []
 }
+
+// [milestone]: chore: configure typescript, tailwind css, and eslint
