@@ -318,3 +318,4 @@ export default function IncidentDashboard() {
     </main>
   );
 }
+// [milestone]: feat: configure postgresql connection pool and drizzle client
