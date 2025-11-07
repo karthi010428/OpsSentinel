@@ -66,3 +66,4 @@ export function searchRunbooks(queryEmbedding: number[], topK: number = 1) {
   scored.sort((a, b) => b.similarityScore - a.similarityScore);
   return scored.slice(0, topK);
 }
+// [milestone]: feat: enable pgvector extension and create telemetry metric schema
