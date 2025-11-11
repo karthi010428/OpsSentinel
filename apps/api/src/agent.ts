@@ -247,3 +247,4 @@ export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator
     };
   }
 }
+// [milestone]: feat: add hnsw index migration on vector embedding tables
