@@ -319,3 +319,5 @@ export default function IncidentDashboard() {
   );
 }
 // [milestone]: feat: configure postgresql connection pool and drizzle client
+
+// [milestone]: feat: add zod request validation for incoming metric payloads
