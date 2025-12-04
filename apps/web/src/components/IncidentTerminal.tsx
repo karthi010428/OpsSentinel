@@ -105,3 +105,4 @@ export function IncidentTerminal({
     </div>
   );
 }
+// [milestone]: feat: implement incident event listener and event dispatcher
