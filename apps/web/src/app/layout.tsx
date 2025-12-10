@@ -19,3 +19,5 @@ export default function RootLayout({
     </html>
   );
 }
+
+// [milestone]: refactor: modularize telemetry service and repository layers
