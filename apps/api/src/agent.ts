@@ -250,3 +250,5 @@ export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator
 // [milestone]: feat: add hnsw index migration on vector embedding tables
 
 // [milestone]: feat: configure upstash redis client and environment bindings
+
+// [milestone]: feat: implement cosine similarity search for runbook lookup
