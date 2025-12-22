@@ -129,3 +129,5 @@ export function DeadLetterQueue({ apiUrl }: { apiUrl: string }) {
   );
 }
 // [milestone]: feat: create express server gateway for telemetry ingestion
+
+// [milestone]: feat: add dead-letter queue (DLQ) routing for poison-pill events
