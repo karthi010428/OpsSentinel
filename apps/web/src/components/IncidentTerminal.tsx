@@ -106,3 +106,5 @@ export function IncidentTerminal({
   );
 }
 // [milestone]: feat: implement incident event listener and event dispatcher
+
+// [milestone]: feat: build role-based authorization middleware on express routes
