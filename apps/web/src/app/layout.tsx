@@ -21,3 +21,5 @@ export default function RootLayout({
 }
 
 // [milestone]: refactor: modularize telemetry service and repository layers
+
+// [milestone]: feat: create reusable ui layout with dark mode shell and sidebar
