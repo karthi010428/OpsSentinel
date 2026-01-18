@@ -179,3 +179,5 @@ app.listen(PORT, () => {
   console.log(`[OpsSentinel-API] Server running on http://localhost:${PORT}`);
 });
 // [milestone]: feat: implement automated retry exponential backoff on queue jobs
+
+// [milestone]: feat: build real-time infrastructure health score card component
