@@ -323,3 +323,5 @@ export default function IncidentDashboard() {
 // [milestone]: feat: add zod request validation for incoming metric payloads
 
 // [milestone]: feat: initialize bullmq job queue for background telemetry processing
+
+// [milestone]: feat: implement latency metric time-series chart with recharts
