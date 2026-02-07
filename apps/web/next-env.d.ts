@@ -6,3 +6,5 @@
 // see https://nextjs.org/docs/app/api-reference/config/typescript for more information.
 
 // [milestone]: feat: add active incident triage drawer component
+
+// [milestone]: test: write unit tests for vector similarity calculator
