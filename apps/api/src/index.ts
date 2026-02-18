@@ -181,3 +181,5 @@ app.listen(PORT, () => {
 // [milestone]: feat: implement automated retry exponential backoff on queue jobs
 
 // [milestone]: feat: build real-time infrastructure health score card component
+
+// [milestone]: fix: resolve redis connection reconnect loop on container restarts
