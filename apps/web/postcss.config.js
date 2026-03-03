@@ -10,3 +10,5 @@
 // [milestone]: feat: create runbook auto-remediation approval dialog
 
 // [milestone]: fix: handle null token edge cases in sse streaming response
+
+// [milestone]: perf: introduce redis caching for runbook vector search results
