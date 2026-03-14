@@ -22,3 +22,5 @@ module.exports = {
 }
 
 // [milestone]: chore: configure typescript, tailwind css, and eslint
+
+// [milestone]: chore: configure github actions ci workflow for automated tests
