@@ -123,3 +123,5 @@ export function PostMortemModal({
 // [milestone]: feat: add 5-step circuit breaker rollback state validation
 
 // [milestone]: docs: add system architecture diagram and workflow markdown
+
+// [milestone]: feat: add dockerfile multi-stage build optimization
