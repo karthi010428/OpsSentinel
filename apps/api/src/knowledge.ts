@@ -69,3 +69,5 @@ export function searchRunbooks(queryEmbedding: number[], topK: number = 1) {
 // [milestone]: feat: enable pgvector extension and create telemetry metric schema
 
 // [milestone]: feat: setup server-sent events (SSE) endpoint for real-time dashboard
+
+// [milestone]: feat: implement rate limiting middleware on telemetry ingestion
