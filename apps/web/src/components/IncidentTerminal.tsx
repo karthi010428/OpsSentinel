@@ -110,3 +110,5 @@ export function IncidentTerminal({
 // [milestone]: feat: build role-based authorization middleware on express routes
 
 // [milestone]: test: add jest tests for dead-letter queue routing behavior
+
+// [milestone]: refactor: simplify circuit breaker state machine transitions
