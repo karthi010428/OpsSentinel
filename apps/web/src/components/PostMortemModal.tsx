@@ -125,3 +125,5 @@ export function PostMortemModal({
 // [milestone]: docs: add system architecture diagram and workflow markdown
 
 // [milestone]: feat: add dockerfile multi-stage build optimization
+
+// [milestone]: feat: add audit logging for manual remediation actions
