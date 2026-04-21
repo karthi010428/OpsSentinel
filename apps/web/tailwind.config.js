@@ -24,3 +24,5 @@ module.exports = {
 // [milestone]: chore: configure typescript, tailwind css, and eslint
 
 // [milestone]: chore: configure github actions ci workflow for automated tests
+
+// [milestone]: feat: add healthcheck endpoint for load balancer monitoring
