@@ -127,3 +127,5 @@ export function PostMortemModal({
 // [milestone]: feat: add dockerfile multi-stage build optimization
 
 // [milestone]: feat: add audit logging for manual remediation actions
+
+// [milestone]: test: add integration test for full incident remediation pipeline
