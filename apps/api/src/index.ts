@@ -183,3 +183,5 @@ app.listen(PORT, () => {
 // [milestone]: feat: build real-time infrastructure health score card component
 
 // [milestone]: fix: resolve redis connection reconnect loop on container restarts
+
+// [milestone]: refactor: clean up unused dependencies and update packages
