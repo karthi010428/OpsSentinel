@@ -252,3 +252,5 @@ export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator
 // [milestone]: feat: configure upstash redis client and environment bindings
 
 // [milestone]: feat: implement cosine similarity search for runbook lookup
+
+// [milestone]: chore: add environment variable schema validation with zod
