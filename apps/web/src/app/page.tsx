@@ -325,3 +325,5 @@ export default function IncidentDashboard() {
 // [milestone]: feat: initialize bullmq job queue for background telemetry processing
 
 // [milestone]: feat: implement latency metric time-series chart with recharts
+
+// [milestone]: feat: add automated error alerting webhook dispatchers
