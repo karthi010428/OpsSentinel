@@ -25,3 +25,5 @@ export default function RootLayout({
 // [milestone]: feat: create reusable ui layout with dark mode shell and sidebar
 
 // [milestone]: fix: handle malformed json payloads in ingestion controller
+
+// [milestone]: fix: prevent duplicate job enqueueing in bullmq queue
