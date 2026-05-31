@@ -254,3 +254,5 @@ export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator
 // [milestone]: feat: implement cosine similarity search for runbook lookup
 
 // [milestone]: chore: add environment variable schema validation with zod
+
+// [milestone]: refactor: polish responsive layouts on tablet and mobile viewports
