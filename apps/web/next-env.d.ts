@@ -8,3 +8,5 @@
 // [milestone]: feat: add active incident triage drawer component
 
 // [milestone]: test: write unit tests for vector similarity calculator
+
+// [milestone]: docs: finalize production deployment guide and readme
