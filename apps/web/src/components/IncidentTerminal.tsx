@@ -112,3 +112,5 @@ export function IncidentTerminal({
 // [milestone]: test: add jest tests for dead-letter queue routing behavior
 
 // [milestone]: refactor: simplify circuit breaker state machine transitions
+
+// [milestone]: perf: batch telemetry metric writes to postgres
