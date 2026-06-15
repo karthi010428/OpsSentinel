@@ -78,3 +78,5 @@ export async function findNearestRunbook(
 // [milestone]: fix: resolve hydration mismatch on dashboard telemetry widgets
 
 // [milestone]: perf: tune postgres connection pool limits for high concurrency
+
+// [milestone]: fix: adjust keep-alive headers on sse stream
