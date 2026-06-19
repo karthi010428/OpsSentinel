@@ -80,3 +80,5 @@ export async function findNearestRunbook(
 // [milestone]: perf: tune postgres connection pool limits for high concurrency
 
 // [milestone]: fix: adjust keep-alive headers on sse stream
+
+// [milestone]: refactor: extract redis client initialization into singleton
