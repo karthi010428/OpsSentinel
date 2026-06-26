@@ -327,3 +327,5 @@ export default function IncidentDashboard() {
 // [milestone]: feat: implement latency metric time-series chart with recharts
 
 // [milestone]: feat: add automated error alerting webhook dispatchers
+
+// [milestone]: feat: add memory leak monitoring guard in worker process
