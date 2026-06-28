@@ -185,3 +185,5 @@ app.listen(PORT, () => {
 // [milestone]: fix: resolve redis connection reconnect loop on container restarts
 
 // [milestone]: refactor: clean up unused dependencies and update packages
+
+// [milestone]: test: test circuit breaker tripping under simulated error spikes
