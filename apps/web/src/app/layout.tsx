@@ -27,3 +27,5 @@ export default function RootLayout({
 // [milestone]: fix: handle malformed json payloads in ingestion controller
 
 // [milestone]: fix: prevent duplicate job enqueueing in bullmq queue
+
+// [milestone]: fix: gracefully drain queue connections on SIGTERM
