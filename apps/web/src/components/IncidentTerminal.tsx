@@ -114,3 +114,5 @@ export function IncidentTerminal({
 // [milestone]: refactor: simplify circuit breaker state machine transitions
 
 // [milestone]: perf: batch telemetry metric writes to postgres
+
+// [milestone]: chore: bump typescript and next.js patch versions
