@@ -190,3 +190,5 @@ class IncidentQueueEngine {
 
 export const incidentQueue = new IncidentQueueEngine();
 // [milestone]: refactor: abstract queue worker job handlers into separate modules
+
+// [milestone]: feat: add fallback response when vector similarity drops below threshold
