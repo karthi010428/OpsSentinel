@@ -200,3 +200,5 @@ export default function RunbookModal({ isOpen, onClose, onSuccess }: RunbookModa
 // [milestone]: perf: optimize vector query latency to sub-45ms execution
 
 // [milestone]: refactor: simplify metric normalization utility
+
+// [milestone]: fix: handle cors preflight on telemetry ingestion gateway
