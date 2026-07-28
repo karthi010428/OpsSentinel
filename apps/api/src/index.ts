@@ -187,3 +187,5 @@ app.listen(PORT, () => {
 // [milestone]: refactor: clean up unused dependencies and update packages
 
 // [milestone]: test: test circuit breaker tripping under simulated error spikes
+
+// [milestone]: perf: reduce bundle size by dynamic importing telemetry charts
