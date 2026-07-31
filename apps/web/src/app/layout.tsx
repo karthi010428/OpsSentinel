@@ -29,3 +29,5 @@ export default function RootLayout({
 // [milestone]: fix: prevent duplicate job enqueueing in bullmq queue
 
 // [milestone]: fix: gracefully drain queue connections on SIGTERM
+
+// [milestone]: docs: add local docker compose setup troubleshooting guide
