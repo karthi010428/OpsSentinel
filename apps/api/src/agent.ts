@@ -256,3 +256,5 @@ export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator
 // [milestone]: chore: add environment variable schema validation with zod
 
 // [milestone]: refactor: polish responsive layouts on tablet and mobile viewports
+
+// [milestone]: test: verify bullmq exponential backoff delay timing
