@@ -202,3 +202,5 @@ export default function RunbookModal({ isOpen, onClose, onSuccess }: RunbookModa
 // [milestone]: refactor: simplify metric normalization utility
 
 // [milestone]: fix: handle cors preflight on telemetry ingestion gateway
+
+// [milestone]: refactor: enforce strict typing across event payloads
