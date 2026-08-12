@@ -73,3 +73,5 @@ export function searchRunbooks(queryEmbedding: number[], topK: number = 1) {
 // [milestone]: feat: implement rate limiting middleware on telemetry ingestion
 
 // [milestone]: docs: add api reference documentation for telemetry endpoints
+
+// [milestone]: chore: tag release candidate v1.0.0
