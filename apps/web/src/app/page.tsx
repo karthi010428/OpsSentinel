@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { DeadLetterQueue } from "@/components/DeadLetterQueue";
 import { IncidentTerminal, TerminalLog } from "@/components/IncidentTerminal";
 import { PostMortemModal } from "@/components/PostMortemModal";
 import {
@@ -9,7 +10,6 @@ import {
   Square,
   Activity,
   Database,
-  Server,
   ShieldCheck,
   ChevronDown,
   FileText,
@@ -28,7 +28,6 @@ export default function IncidentDashboard() {
 
   // Operational Telemetry Metrics
   const [latencyHistory, setLatencyHistory] = useState<number[]>([42, 44, 41, 45, 42]);
-  const [startTime, setStartTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<string>("0.0");
 
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -38,7 +37,6 @@ export default function IncidentDashboard() {
   useEffect(() => {
     if (isStreaming) {
       const now = Date.now();
-      setStartTime(now);
       timerRef.current = setInterval(() => {
         setElapsedSeconds(((Date.now() - now) / 1000).toFixed(1));
       }, 100);
@@ -60,10 +58,10 @@ export default function IncidentDashboard() {
     setElapsedSeconds("0.0");
     setLatencyHistory([42, 380, 2400, 12400]);
 
-   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://opssentinel-api.onrender.com";
-const eventSource = new EventSource(
-  `${API_BASE}/api/incidents/stream?scenario=${scenario}`
-);
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://opssentinel-api.onrender.com";
+    const eventSource = new EventSource(
+      `${API_BASE}/api/incidents/stream?scenario=${scenario}`
+    );
     eventSourceRef.current = eventSource;
 
     eventSource.onmessage = (event) => {
@@ -118,6 +116,8 @@ const eventSource = new EventSource(
     })
     .join(" ");
 
+  const apiEndpoint = process.env.NEXT_PUBLIC_API_URL || "https://opssentinel-api.onrender.com";
+
   return (
     <main className="min-h-screen p-6 md:p-10 max-w-7xl mx-auto space-y-6">
       {/* Header and Controls */}
@@ -161,7 +161,7 @@ const eventSource = new EventSource(
             <span>Simulate Incident</span>
           </button>
 
-          {/* Post-Mortem Button (Activates on Resolution) */}
+          {/* Post-Mortem Button */}
           <button
             onClick={() => setIsPostMortemOpen(true)}
             disabled={!hasResolved}
@@ -277,6 +277,10 @@ const eventSource = new EventSource(
         </div>
       </div>
 
+      {/* Distributed Dead-Letter Queue (DLQ) Card */}
+      <DeadLetterQueue apiUrl={apiEndpoint} />
+
+      {/* Terminal View */}
       <div className="pt-2">
         <IncidentTerminal logs={logs} isStreaming={isStreaming} />
       </div>
