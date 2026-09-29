@@ -60,9 +60,10 @@ export default function IncidentDashboard() {
     setElapsedSeconds("0.0");
     setLatencyHistory([42, 380, 2400, 12400]);
 
-    const eventSource = new EventSource(
-      `http://localhost:4000/api/incidents/stream?scenario=${scenario}`
-    );
+   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "https://opssentinel-api.onrender.com";
+const eventSource = new EventSource(
+  `${API_BASE}/api/incidents/stream?scenario=${scenario}`
+);
     eventSourceRef.current = eventSource;
 
     eventSource.onmessage = (event) => {
