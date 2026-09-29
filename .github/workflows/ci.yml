@@ -1,0 +1,30 @@
+name: OpsSentinel CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-and-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Monorepo Dependencies
+        run: npm ci
+
+      - name: TypeScript Static Analysis (API)
+        run: npm run build --workspace=@opssentinel/api
+
+      - name: Next.js Production Build (Web)
+        run: npm run build --workspace=@opssentinel/web
