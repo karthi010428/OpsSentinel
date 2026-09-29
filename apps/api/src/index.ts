@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { runReActAgentLoop } from "./agent.js";
+import { incidentQueue } from "./queue.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -12,6 +13,7 @@ app.get("/health", (req: Request, res: Response) => {
   res.json({
     status: "healthy",
     service: "OpsSentinel API Gateway",
+    queueStats: incidentQueue.getQueueStats(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -21,14 +23,28 @@ app.get("/api/incidents/stream", async (req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  const initialAlert = {
-    id: `log-${Date.now()}-0`,
+  // Step 1: Enqueue Incident into Orchestrator Queue
+  const enqueuedJob = incidentQueue.addJob({
+    incidentType: "HTTP 504 Gateway Timeout",
+    severity: "SEV-1",
+    payload: {
+      service: "orders-db",
+      endpoint: "/api/v1/orders",
+      latencyMs: 12400,
+      errorRate: 0.88,
+    },
+  });
+
+  const queueEvent = {
+    id: `log-${Date.now()}-queue`,
     timestamp: new Date().toISOString().split("T")[1]?.slice(0, 8) || "00:00:00",
-    level: "ERROR",
-    source: "HealthCheckService",
-    message: "HTTP 504 Gateway Timeout detected on /api/v1/orders. Latency: 12400ms (P99 > 2000ms SLA breach).",
+    level: "WARN",
+    source: "[QUEUE] BullMQ Orchestrator",
+    message: `Job ${enqueuedJob.id} registered into high-priority lane. Severity: SEV-1. Pending jobs: ${incidentQueue.getQueueStats().pendingJobs}. Worker spawned.`,
   };
-  res.write(`data: ${JSON.stringify(initialAlert)}\n\n`);
+  res.write(`data: ${JSON.stringify(queueEvent)}\n\n`);
+
+  await new Promise((r) => setTimeout(r, 600));
 
   let isAborted = false;
   req.on("close", () => {
