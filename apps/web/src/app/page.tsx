@@ -7,45 +7,7 @@ import { AlertOctagon, Play, Square, Activity, Database, Server } from "lucide-r
 export default function IncidentDashboard() {
   const [logs, setLogs] = useState<TerminalLog[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  const mockEvents: Omit<TerminalLog, "id" | "timestamp">[] = [
-    {
-      level: "ERROR",
-      source: "HealthCheckService",
-      message: "HTTP 504 Gateway Timeout detected on /api/v1/orders. Latency: 12400ms (P99 > 2000ms SLA breach).",
-    },
-    {
-      level: "WARN",
-      source: "CircuitBreaker",
-      message: "Order-service trip threshold reached (5 consecutive failures). Entering HALF-OPEN state.",
-    },
-    {
-      level: "INFO",
-      source: "ReActBrain",
-      message: "Triggering autonomous diagnosis agent. Querying pgvector runbook embeddings with cosine distance...",
-    },
-    {
-      level: "INFO",
-      source: "ToolSandbox",
-      message: "Executing Zod-guarded tool: [check_db_pool_status] on read-only replica...",
-    },
-    {
-      level: "WARN",
-      source: "ToolSandbox",
-      message: "PostgreSQL active connections: 98/100. Contention observed on pg_stat_activity due to idle-in-transaction locks.",
-    },
-    {
-      level: "REMEDIATED",
-      source: "RemediationExecutor",
-      message: "Terminated 4 blocking zombie backend sessions via pg_terminate_backend(). Pool connections dropped to 22/100.",
-    },
-    {
-      level: "INFO",
-      source: "HealthCheckService",
-      message: "Endpoint /api/v1/orders latency restored to 84ms. Circuit reset to CLOSED. Incident resolved.",
-    },
-  ];
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const triggerSimulation = () => {
     if (isStreaming) return;
@@ -53,31 +15,40 @@ export default function IncidentDashboard() {
     setLogs([]);
     setIsStreaming(true);
 
-    mockEvents.forEach((event, index) => {
-      setTimeout(() => {
-        const newLog: TerminalLog = {
-          id: `log-${Date.now()}-${index}`,
-          timestamp: new Date().toISOString().split("T")[1]?.slice(0, 8) || "00:00:00",
-          ...event,
-        };
+    const eventSource = new EventSource("http://localhost:4000/api/incidents/stream");
+    eventSourceRef.current = eventSource;
 
-        setLogs((prev) => [...prev, newLog]);
+    eventSource.onmessage = (event) => {
+      if (event.data === "[DONE]") {
+        eventSource.close();
+        setIsStreaming(false);
+        return;
+      }
 
-        if (index === mockEvents.length - 1) {
-          setIsStreaming(false);
-        }
-      }, (index + 1) * 900);
-    });
+      try {
+        const parsedLog: TerminalLog = JSON.parse(event.data);
+        setLogs((prev) => [...prev, parsedLog]);
+      } catch (err) {
+        console.error("Failed to parse log event", err);
+      }
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+      setIsStreaming(false);
+    };
   };
 
   const clearLogs = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
     setLogs([]);
     setIsStreaming(false);
   };
 
   return (
     <main className="min-h-screen p-6 md:p-10 max-w-7xl mx-auto space-y-6">
-      {/* Top Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-800 pb-6">
         <div>
           <div className="flex items-center space-x-3">
@@ -93,7 +64,6 @@ export default function IncidentDashboard() {
           </p>
         </div>
 
-        {/* Actions */}
         <div className="flex items-center space-x-3">
           <button
             onClick={triggerSimulation}
@@ -113,7 +83,6 @@ export default function IncidentDashboard() {
         </div>
       </div>
 
-      {/* SRE Infrastructure Telemetry Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 rounded-lg bg-[#0E1526] border border-gray-800 flex items-center space-x-4">
           <div className="p-3 rounded-md bg-blue-950/60 text-blue-400 border border-blue-900">
@@ -152,7 +121,6 @@ export default function IncidentDashboard() {
         </div>
       </div>
 
-      {/* Main Terminal View */}
       <div className="pt-2">
         <IncidentTerminal logs={logs} isStreaming={isStreaming} />
       </div>
