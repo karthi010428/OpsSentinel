@@ -1,4 +1,5 @@
 import { sreTools } from "./tools.js";
+import { searchRunbooks } from "./knowledge.js";
 
 export interface AgentStepEvent {
   step: number;
@@ -8,17 +9,34 @@ export interface AgentStepEvent {
 }
 
 export async function* runReActAgentLoop(incidentDescription: string): AsyncGenerator<AgentStepEvent> {
-  // Step 1: Initial Ingestion & Thought
+  // Step 1: Ingestion & Vector Search Embedding
   yield {
     step: 1,
     type: "THOUGHT",
     source: "ReActBrain",
-    message: `Analyzing incident: "${incidentDescription}". Initial hypothesis: DB Connection Pool starvation or slow lock contention. Querying runbook embeddings...`,
+    message: `Analyzing incident: "${incidentDescription}". Querying pgvector HNSW index for high-confidence runbook match...`,
   };
 
   await new Promise((r) => setTimeout(r, 900));
 
-  // Step 2: Action - Check DB Pool
+  // Incident symptom vector: [High DB saturation, High lock contention, Moderate latency, Low memory, High errors]
+  const incidentEmbedding = [0.89, 0.81, 0.50, 0.18, 0.85];
+  const [matchedRunbook] = searchRunbooks(incidentEmbedding, 1);
+
+  if (!matchedRunbook) {
+    throw new Error("No matching SRE runbook found in vector database.");
+  }
+
+  yield {
+    step: 1,
+    type: "OBSERVATION",
+    source: "VectorDB (pgvector)",
+    message: `Nearest Runbook: [${matchedRunbook.id}] "${matchedRunbook.title}" (Cosine Similarity: ${(matchedRunbook.similarityScore * 100).toFixed(1)}%). Recommended Tool: ${matchedRunbook.remediationTool}`,
+  };
+
+  await new Promise((r) => setTimeout(r, 900));
+
+  // Step 2: Action - Check DB Pool via Guarded Tool
   yield {
     step: 2,
     type: "ACTION",
@@ -43,12 +61,12 @@ export async function* runReActAgentLoop(incidentDescription: string): AsyncGene
 
   await new Promise((r) => setTimeout(r, 1100));
 
-  // Step 4: Thought & Remediation Action
+  // Step 4: Decision & Remediation via Matched Runbook
   yield {
     step: 4,
     type: "THOUGHT",
     source: "ReActBrain",
-    message: "Remediation decision: Terminating 4 idle-in-transaction zombie sessions to release locks and restore connection pool headroom.",
+    message: `Applying Runbook ${matchedRunbook.id} procedure: Executing ${matchedRunbook.remediationTool} to drop zombie locks and restore pool headroom.`,
   };
 
   await new Promise((r) => setTimeout(r, 900));
@@ -56,19 +74,19 @@ export async function* runReActAgentLoop(incidentDescription: string): AsyncGene
   const killResult = await sreTools.terminate_zombie_sessions({
     targetService: "orders-db",
     maxConnectionsToKill: 4,
-    reason: "Clear Sev-1 pool saturation causing HTTP 504 timeout",
+    reason: `Runbook ${matchedRunbook.id} automated remediation for HTTP 504`,
   });
 
   yield {
     step: 4,
     type: "REMEDIATION",
     source: "RemediationExecutor",
-    message: `Remediation executed: Killed PIDs [${killResult.connectionsKilled.join(", ")}]. Active connections dropped to ${killResult.remainingActive}/100. Status: ${killResult.status}.`,
+    message: `Remediation executed: Terminated PIDs [${killResult.connectionsKilled.join(", ")}]. Active connections dropped to ${killResult.remainingActive}/100. Status: ${killResult.status}.`,
   };
 
   await new Promise((r) => setTimeout(r, 1000));
 
-  // Step 5: Final Verification & Resolution
+  // Step 5: Verification & Resolution
   yield {
     step: 5,
     type: "RESOLVED",
