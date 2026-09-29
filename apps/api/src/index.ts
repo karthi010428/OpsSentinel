@@ -30,7 +30,6 @@ app.get("/api/dlq", async (req: Request, res: Response) => {
 });
 
 // DLQ API: Re-queue a poisoned job
-// DLQ API: Re-queue a poisoned job
 app.post("/api/dlq/:id/retry", async (req: Request, res: Response) => {
   try {
     const jobId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
@@ -41,6 +40,22 @@ app.post("/api/dlq/:id/retry", async (req: Request, res: Response) => {
     res.json({ success: true, message: "Job requeued successfully", job: retriedJob });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error?.message || "Failed to retry DLQ job" });
+  }
+});
+
+// DLQ API: Test helper to push a poisoned job for UI verification
+// DLQ API: Test helper to push a poisoned job for UI verification
+// DLQ API: Test helper to push a poisoned job for UI verification
+app.post("/api/dlq/test-fail", async (req: Request, res: Response) => {
+  try {
+    const testId = `job-test-${Date.now()}`;
+    const failedJob = await incidentQueue.failJob(
+      testId,
+      "Simulated deadlock in transaction buffer (Poison Pill)"
+    );
+    res.json({ success: true, message: "Poisoned job pushed to DLQ", job: failedJob });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error?.message || "Failed to inject test job" });
   }
 });
 

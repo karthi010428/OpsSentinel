@@ -118,6 +118,32 @@ class IncidentQueueEngine {
     return job;
   }
 
+  public async failJob(jobId: string, reason = "Execution threshold failed"): Promise<IncidentJob | null> {
+    const dlqJob: IncidentJob = {
+      id: jobId,
+      incidentType: "POISON_PILL_TEST",
+      severity: "SEV-1",
+      payload: {
+        service: "billing-gateway",
+        endpoint: "/checkout",
+        latencyMs: 99999,
+        errorRate: 1.0,
+      },
+      queuedAt: Date.now(),
+      status: "DLQ",
+      attempts: 2,
+      maxRetries: 2,
+      errorReason: reason,
+    };
+
+    if (redis) {
+      await redis.lpush(QUEUE_DLQ_KEY, JSON.stringify(dlqJob));
+    } else {
+      this.dlq.unshift(dlqJob);
+    }
+
+    return dlqJob;
+  }
   public async processNext(workerFn: (job: IncidentJob) => Promise<void>) {
     if (this.isProcessing) return;
 
