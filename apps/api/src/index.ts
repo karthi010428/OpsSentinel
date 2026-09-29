@@ -1,6 +1,6 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
-import { runReActAgentLoop } from "./agent.js";
+import { runReActAgentLoop, ScenarioType } from "./agent.js";
 import { incidentQueue } from "./queue.js";
 
 const app = express();
@@ -23,13 +23,21 @@ app.get("/api/incidents/stream", async (req: Request, res: Response) => {
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
 
-  // Step 1: Enqueue Incident into Orchestrator Queue
+  const scenario = (req.query.scenario as ScenarioType) || "POSTGRES_LOCK";
+
+  const targetService =
+    scenario === "POSTGRES_LOCK"
+      ? "orders-db"
+      : scenario === "REDIS_OOM"
+      ? "session-cache"
+      : "payments-ingress";
+
   const enqueuedJob = incidentQueue.addJob({
-    incidentType: "HTTP 504 Gateway Timeout",
+    incidentType: scenario,
     severity: "SEV-1",
     payload: {
-      service: "orders-db",
-      endpoint: "/api/v1/orders",
+      service: targetService,
+      endpoint: "/api/v1/workload",
       latencyMs: 12400,
       errorRate: 0.88,
     },
@@ -40,7 +48,7 @@ app.get("/api/incidents/stream", async (req: Request, res: Response) => {
     timestamp: new Date().toISOString().split("T")[1]?.slice(0, 8) || "00:00:00",
     level: "WARN",
     source: "[QUEUE] BullMQ Orchestrator",
-    message: `Job ${enqueuedJob.id} registered into high-priority lane. Severity: SEV-1. Pending jobs: ${incidentQueue.getQueueStats().pendingJobs}. Worker spawned.`,
+    message: `Job ${enqueuedJob.id} registered into high-priority lane. Scenario: ${scenario}. Pending: ${incidentQueue.getQueueStats().pendingJobs}. Worker spawned.`,
   };
   res.write(`data: ${JSON.stringify(queueEvent)}\n\n`);
 
@@ -52,14 +60,14 @@ app.get("/api/incidents/stream", async (req: Request, res: Response) => {
   });
 
   try {
-    const agentGenerator = runReActAgentLoop("HTTP 504 Gateway Timeout on /api/v1/orders");
+    const agentGenerator = runReActAgentLoop(scenario);
 
     for await (const event of agentGenerator) {
       if (isAborted) break;
 
       let level: "INFO" | "WARN" | "ERROR" | "REMEDIATED" = "INFO";
       if (event.type === "REMEDIATION") level = "REMEDIATED";
-      if (event.type === "ACTION") level = "WARN";
+      if (event.type === "ACTION" || event.type === "AWAITING_APPROVAL") level = "WARN";
 
       const eventData = {
         id: `log-${Date.now()}-${event.step}-${event.type}`,
@@ -67,6 +75,8 @@ app.get("/api/incidents/stream", async (req: Request, res: Response) => {
         level,
         source: `[${event.type}] ${event.source}`,
         message: event.message,
+        auditHash: event.auditHash,
+        actionDetails: event.actionDetails,
       };
 
       res.write(`data: ${JSON.stringify(eventData)}\n\n`);

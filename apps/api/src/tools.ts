@@ -1,6 +1,7 @@
 import { z } from "zod";
+import crypto from "crypto";
 
-// 1. Tool Input Schema Validation
+// Schemas
 export const CheckDbPoolSchema = z.object({
   targetService: z.string().min(1),
   readOnly: z.literal(true),
@@ -12,13 +13,29 @@ export const TerminateZombiesSchema = z.object({
   reason: z.string().min(5),
 });
 
+export const FlushCacheSchema = z.object({
+  targetService: z.string().min(1),
+  cacheCluster: z.string().min(1),
+  keyspace: z.string().min(1),
+});
+
+export const ScaleIngressSchema = z.object({
+  targetService: z.string().min(1),
+  targetReplicas: z.number().int().min(2).max(10),
+});
+
 export type CheckDbPoolInput = z.infer<typeof CheckDbPoolSchema>;
 export type TerminateZombiesInput = z.infer<typeof TerminateZombiesSchema>;
+export type FlushCacheInput = z.infer<typeof FlushCacheSchema>;
+export type ScaleIngressInput = z.infer<typeof ScaleIngressSchema>;
 
-// 2. Safe Sandboxed SRE Tool Implementations
+export function generateAuditHash(toolName: string, args: Record<string, unknown>): string {
+  const payload = JSON.stringify({ toolName, args, timestamp: Date.now() });
+  return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 16);
+}
+
 export const sreTools = {
   check_db_pool_status: async (input: CheckDbPoolInput) => {
-    // Validates inputs at runtime using Zod
     CheckDbPoolSchema.parse(input);
     return {
       service: input.targetService,
@@ -26,10 +43,7 @@ export const sreTools = {
       activeConnections: 98,
       idleInTransaction: 4,
       healthStatus: "CRITICAL_SATURATION",
-      topBlockingQueries: [
-        "SELECT * FROM orders FOR UPDATE -- idle in transaction (pid: 4091)",
-        "SELECT * FROM orders FOR UPDATE -- idle in transaction (pid: 4092)",
-      ],
+      auditHash: generateAuditHash("check_db_pool_status", input),
     };
   },
 
@@ -41,6 +55,30 @@ export const sreTools = {
       connectionsKilled: [4091, 4092, 4095, 4098],
       remainingActive: 22,
       status: "POOL_HEALTH_RESTORED",
+      auditHash: generateAuditHash("terminate_zombie_sessions", input),
+    };
+  },
+
+  flush_volatile_cache: async (input: FlushCacheInput) => {
+    FlushCacheSchema.parse(input);
+    return {
+      service: input.targetService,
+      cluster: input.cacheCluster,
+      evictedKeys: 42180,
+      memoryFreedMb: 3450,
+      status: "CACHE_PRESSURE_RELIEVED",
+      auditHash: generateAuditHash("flush_volatile_cache", input),
+    };
+  },
+
+  scale_ingress_replicas: async (input: ScaleIngressInput) => {
+    ScaleIngressSchema.parse(input);
+    return {
+      service: input.targetService,
+      previousReplicas: 2,
+      currentReplicas: input.targetReplicas,
+      status: "INGRESS_UPSTREAM_SCALED",
+      auditHash: generateAuditHash("scale_ingress_replicas", input),
     };
   },
 };
