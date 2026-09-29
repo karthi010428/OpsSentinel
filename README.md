@@ -1,4 +1,5 @@
 # OpsSentinel Control Plane
+[![OpsSentinel CI](https://github.com/karthi010428/OpsSentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/karthi010428/OpsSentinel/actions)
 
 > **Autonomous Systems Reliability Engineering (SRE) Agent & Live Telemetry Inspector**  
 > An enterprise-grade, zero-trust autonomous incident remediation engine that detects Sev-1 outages, matches runbooks via high-dimensional vector search, and safely executes self-healing runbooks within strict Human-in-the-Loop (HITL) governance bounds.
