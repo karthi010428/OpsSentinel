@@ -1,8 +1,20 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { IncidentTerminal, TerminalLog } from "@/components/IncidentTerminal";
-import { AlertOctagon, Play, Square, Activity, Database, Server, ShieldCheck, ChevronDown } from "lucide-react";
+import { PostMortemModal } from "@/components/PostMortemModal";
+import {
+  AlertOctagon,
+  Play,
+  Square,
+  Activity,
+  Database,
+  Server,
+  ShieldCheck,
+  ChevronDown,
+  FileText,
+  Clock,
+} from "lucide-react";
 
 type Scenario = "POSTGRES_LOCK" | "REDIS_OOM" | "INGRESS_TIMEOUT";
 
@@ -11,7 +23,32 @@ export default function IncidentDashboard() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [scenario, setScenario] = useState<Scenario>("POSTGRES_LOCK");
   const [hitlPrompt, setHitlPrompt] = useState<{ toolName: string; impact: string } | null>(null);
+  const [isPostMortemOpen, setIsPostMortemOpen] = useState(false);
+  const [hasResolved, setHasResolved] = useState(false);
+
+  // Operational Telemetry Metrics
+  const [latencyHistory, setLatencyHistory] = useState<number[]>([42, 44, 41, 45, 42]);
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState<string>("0.0");
+
   const eventSourceRef = useRef<EventSource | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Stopwatch timer for MTTR
+  useEffect(() => {
+    if (isStreaming) {
+      const now = Date.now();
+      setStartTime(now);
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds(((Date.now() - now) / 1000).toFixed(1));
+      }, 100);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isStreaming]);
 
   const triggerSimulation = () => {
     if (isStreaming) return;
@@ -19,8 +56,13 @@ export default function IncidentDashboard() {
     setLogs([]);
     setIsStreaming(true);
     setHitlPrompt(null);
+    setHasResolved(false);
+    setElapsedSeconds("0.0");
+    setLatencyHistory([42, 380, 2400, 12400]);
 
-    const eventSource = new EventSource(`http://localhost:4000/api/incidents/stream?scenario=${scenario}`);
+    const eventSource = new EventSource(
+      `http://localhost:4000/api/incidents/stream?scenario=${scenario}`
+    );
     eventSourceRef.current = eventSource;
 
     eventSource.onmessage = (event) => {
@@ -28,6 +70,8 @@ export default function IncidentDashboard() {
         eventSource.close();
         setIsStreaming(false);
         setHitlPrompt(null);
+        setHasResolved(true);
+        setLatencyHistory((prev) => [...prev.slice(-6), 42]);
         return;
       }
 
@@ -35,6 +79,9 @@ export default function IncidentDashboard() {
         const parsedLog = JSON.parse(event.data);
         if (parsedLog.actionDetails) {
           setHitlPrompt(parsedLog.actionDetails);
+        }
+        if (parsedLog.level === "REMEDIATED") {
+          setLatencyHistory((prev) => [...prev.slice(-6), 110, 42]);
         }
         setLogs((prev) => [...prev, parsedLog]);
       } catch (err) {
@@ -55,7 +102,20 @@ export default function IncidentDashboard() {
     setLogs([]);
     setIsStreaming(false);
     setHitlPrompt(null);
+    setHasResolved(false);
+    setElapsedSeconds("0.0");
+    setLatencyHistory([42, 44, 41, 45, 42]);
   };
+
+  // Sparkline coordinates calculator
+  const maxLatency = Math.max(...latencyHistory, 100);
+  const sparklinePoints = latencyHistory
+    .map((val, idx) => {
+      const x = (idx / (latencyHistory.length - 1)) * 140;
+      const y = 35 - (val / maxLatency) * 30;
+      return `${x},${y}`;
+    })
+    .join(" ");
 
   return (
     <main className="min-h-screen p-6 md:p-10 max-w-7xl mx-auto space-y-6">
@@ -76,7 +136,7 @@ export default function IncidentDashboard() {
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Scenario Selector Dropdown */}
+          {/* Scenario Selector */}
           <div className="relative">
             <select
               value={scenario}
@@ -100,6 +160,16 @@ export default function IncidentDashboard() {
             <span>Simulate Incident</span>
           </button>
 
+          {/* Post-Mortem Button (Activates on Resolution) */}
+          <button
+            onClick={() => setIsPostMortemOpen(true)}
+            disabled={!hasResolved}
+            className="flex items-center space-x-2 px-3.5 py-2 rounded-md bg-purple-900/60 hover:bg-purple-800 disabled:opacity-30 disabled:hover:bg-purple-900/60 text-purple-200 text-xs font-semibold transition-colors border border-purple-700"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Generate Post-Mortem (RCA)</span>
+          </button>
+
           <button
             onClick={clearLogs}
             className="flex items-center space-x-2 px-4 py-2 rounded-md bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors border border-gray-700"
@@ -110,7 +180,7 @@ export default function IncidentDashboard() {
         </div>
       </div>
 
-      {/* HITL Live Authorization Toast/Banner */}
+      {/* HITL Live Authorization Toast */}
       {hitlPrompt && (
         <div className="p-4 rounded-lg bg-amber-950/40 border border-amber-600/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-pulse">
           <div className="flex items-center space-x-3">
@@ -122,36 +192,59 @@ export default function IncidentDashboard() {
                 Zero-Trust HITL Approval Gate: Action Required
               </div>
               <div className="text-xs text-amber-300/80">
-                Tool: <code className="text-white font-mono bg-black/40 px-1 py-0.5 rounded">{hitlPrompt.toolName}</code> • Impact: {hitlPrompt.impact}
+                Tool:{" "}
+                <code className="text-white font-mono bg-black/40 px-1 py-0.5 rounded">
+                  {hitlPrompt.toolName}
+                </code>{" "}
+                • Impact: {hitlPrompt.impact}
               </div>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <span className="text-xs text-emerald-400 font-mono font-semibold uppercase tracking-wider bg-emerald-950/60 border border-emerald-800/80 px-2.5 py-1 rounded">
-              Verified Auto-Approved by SRE Policy
-            </span>
-          </div>
+          <span className="text-xs text-emerald-400 font-mono font-semibold uppercase tracking-wider bg-emerald-950/60 border border-emerald-800/80 px-2.5 py-1 rounded">
+            Policy Verified: Auto-Approved
+          </span>
         </div>
       )}
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Operational Observability Telemetry Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        {/* Metric 1: System Status */}
         <div className="p-4 rounded-lg bg-[#0E1526] border border-gray-800 flex items-center space-x-4">
           <div className="p-3 rounded-md bg-blue-950/60 text-blue-400 border border-blue-900">
             <Activity className="w-5 h-5" />
           </div>
           <div>
-            <div className="text-xs text-gray-400">System Status</div>
+            <div className="text-xs text-gray-400">System Health</div>
             <div className="text-sm font-semibold text-slate-200">
               {isStreaming ? (
-                <span className="text-amber-400">Degraded (Sev-1 In Progress)</span>
+                <span className="text-amber-400">Degraded (SEV-1)</span>
               ) : (
-                <span className="text-emerald-400">Nominal (All Systems Go)</span>
+                <span className="text-emerald-400">Nominal (Optimal)</span>
               )}
             </div>
           </div>
         </div>
 
+        {/* Metric 2: Live MTTR Stopwatch */}
+        <div className="p-4 rounded-lg bg-[#0E1526] border border-gray-800 flex items-center space-x-4">
+          <div className="p-3 rounded-md bg-emerald-950/60 text-emerald-400 border border-emerald-900">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="text-xs text-gray-400">Mean Time to Remediate</div>
+            <div className="text-sm font-mono font-bold text-slate-200">
+              {isStreaming ? (
+                <span className="text-amber-400 animate-pulse">{elapsedSeconds}s (Active)</span>
+              ) : hasResolved ? (
+                <span className="text-emerald-400">{elapsedSeconds}s (Resolved)</span>
+              ) : (
+                "0.0s (Idle)"
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Metric 3: Vector & Queue State */}
         <div className="p-4 rounded-lg bg-[#0E1526] border border-gray-800 flex items-center space-x-4">
           <div className="p-3 rounded-md bg-purple-950/60 text-purple-400 border border-purple-900">
             <Database className="w-5 h-5" />
@@ -162,20 +255,39 @@ export default function IncidentDashboard() {
           </div>
         </div>
 
-        <div className="p-4 rounded-lg bg-[#0E1526] border border-gray-800 flex items-center space-x-4">
-          <div className="p-3 rounded-md bg-emerald-950/60 text-emerald-400 border border-emerald-900">
-            <Server className="w-5 h-5" />
-          </div>
+        {/* Metric 4: Real-time SVG Latency Sparkline */}
+        <div className="p-4 rounded-lg bg-[#0E1526] border border-gray-800 flex items-center justify-between">
           <div>
-            <div className="text-xs text-gray-400">Orchestrator Queue</div>
-            <div className="text-sm font-semibold text-slate-200">BullMQ (Connected)</div>
+            <div className="text-xs text-gray-400">P99 Latency Trend</div>
+            <div className="text-sm font-mono font-bold text-slate-200">
+              {latencyHistory[latencyHistory.length - 1]}ms
+            </div>
           </div>
+          <svg className="w-28 h-9 overflow-visible" viewBox="0 0 140 40">
+            <polyline
+              fill="none"
+              stroke={isStreaming ? "#f59e0b" : "#10b981"}
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              points={sparklinePoints}
+            />
+          </svg>
         </div>
       </div>
 
       <div className="pt-2">
         <IncidentTerminal logs={logs} isStreaming={isStreaming} />
       </div>
+
+      {/* Post-Mortem (RCA) Modal */}
+      <PostMortemModal
+        isOpen={isPostMortemOpen}
+        onClose={() => setIsPostMortemOpen(false)}
+        scenario={scenario}
+        mttrSeconds={elapsedSeconds}
+        timelineLogs={logs.map((l) => `${l.source}: ${l.message}`)}
+      />
     </main>
   );
 }
