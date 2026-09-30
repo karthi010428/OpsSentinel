@@ -6,7 +6,7 @@ export type ScenarioType = "POSTGRES_LOCK" | "REDIS_OOM" | "INGRESS_TIMEOUT";
 
 export interface AgentStepEvent {
   step: number;
-  type: "THOUGHT" | "ACTION" | "OBSERVATION" | "AWAITING_APPROVAL" | "REMEDIATION" | "RESOLVED";
+  type: "THOUGHT" | "ACTION" | "OBSERVATION" | "AWAITING_APPROVAL" | "REMEDIATION" | "RESOLVED" | "ROLLBACK";
   source: string;
   message: string;
   auditHash?: string;
@@ -16,7 +16,11 @@ export interface AgentStepEvent {
   };
 }
 
+const MAX_REACT_STEPS = 5;
+
 export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator<AgentStepEvent> {
+  let currentStep = 0;
+
   const scenarioConfigs: Record<
     ScenarioType,
     { title: string; embedding: number[]; targetService: string }
@@ -40,188 +44,206 @@ export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator
 
   const config = scenarioConfigs[scenario] || scenarioConfigs.POSTGRES_LOCK;
 
-  // Step 1: Ingestion & Vector Search
-  yield {
-    step: 1,
-    type: "THOUGHT",
-    source: "ReActBrain",
-    message: `Analyzing incident: "${config.title}". Querying pgvector HNSW index for high-confidence runbook match...`,
-  };
+  try {
+    // Step 1: Ingestion & Vector Search
+    currentStep++;
+    yield {
+      step: currentStep,
+      type: "THOUGHT",
+      source: "ReActBrain",
+      message: `Analyzing incident: "${config.title}". Querying pgvector HNSW index for high-confidence runbook match...`,
+    };
 
-  await new Promise((r) => setTimeout(r, 800));
+    await new Promise((r) => setTimeout(r, 800));
 
-  // Query Neon PostgreSQL pgvector table via SQL cosine distance
-  const pgRunbook = await findNearestRunbook(scenario);
+    // Query Neon PostgreSQL pgvector table via SQL cosine distance
+    const pgRunbook = await findNearestRunbook(scenario);
 
-  let runbookId = "";
-  let runbookTitle = "";
-  let runbookSimilarity = 0;
-  let recommendedTool = "";
-  let vectorSource = "Neon pgvector (HNSW)";
+    let runbookId = "";
+    let runbookTitle = "";
+    let runbookSimilarity = 0;
+    let recommendedTool = "";
+    let vectorSource = "Neon pgvector (HNSW)";
 
-  if (pgRunbook) {
-    runbookId = pgRunbook.id;
-    runbookTitle = pgRunbook.title;
-    runbookSimilarity = pgRunbook.similarity;
-    recommendedTool = pgRunbook.recommendedTool;
-  } else {
-    // Graceful fallback to in-memory heuristics if DB connection is unavailable
-    const [fallbackRunbook] = searchRunbooks(config.embedding, 1);
-    if (!fallbackRunbook) {
-      throw new Error("No matching SRE runbook found in vector database.");
+    if (pgRunbook) {
+      runbookId = pgRunbook.id;
+      runbookTitle = pgRunbook.title;
+      runbookSimilarity = pgRunbook.similarity;
+      recommendedTool = pgRunbook.recommendedTool;
+    } else {
+      const [fallbackRunbook] = searchRunbooks(config.embedding, 1);
+      if (!fallbackRunbook) {
+        throw new Error("No matching SRE runbook found in vector database.");
+      }
+      runbookId = fallbackRunbook.id;
+      runbookTitle = fallbackRunbook.title;
+      runbookSimilarity = fallbackRunbook.similarityScore;
+      recommendedTool = fallbackRunbook.remediationTool;
+      vectorSource = "VectorDB (Heuristic Fallback)";
     }
-    runbookId = fallbackRunbook.id;
-    runbookTitle = fallbackRunbook.title;
-    runbookSimilarity = fallbackRunbook.similarityScore;
-    recommendedTool = fallbackRunbook.remediationTool;
-    vectorSource = "VectorDB (Heuristic Fallback)";
-  }
 
-  yield {
-    step: 1,
-    type: "OBSERVATION",
-    source: vectorSource,
-    message: `Nearest Runbook: [${runbookId}] "${runbookTitle}" (Cosine Similarity: ${(
-      runbookSimilarity * 100
-    ).toFixed(1)}%). Recommended Tool: ${recommendedTool}`,
-  };
-
-  await new Promise((r) => setTimeout(r, 800));
-
-  // Step 2 & 3: Diagnostic Observation depending on scenario
-  if (scenario === "POSTGRES_LOCK") {
     yield {
-      step: 2,
-      type: "ACTION",
-      source: "ToolSandbox",
-      message: "Executing guarded tool: check_db_pool_status on orders-db replica...",
+      step: currentStep,
+      type: "OBSERVATION",
+      source: vectorSource,
+      message: `Nearest Runbook: [${runbookId}] "${runbookTitle}" (Cosine Similarity: ${(
+        runbookSimilarity * 100
+      ).toFixed(1)}%). Recommended Tool: ${recommendedTool}`,
     };
 
-    const status = await sreTools.check_db_pool_status({
-      targetService: config.targetService,
-      readOnly: true,
-    });
+    await new Promise((r) => setTimeout(r, 800));
+
+    // Step 2: Diagnostic Action
+    currentStep++;
+    if (currentStep > MAX_REACT_STEPS) throw new Error("Circuit breaker tripped: Max step cap exceeded.");
+
+    if (scenario === "POSTGRES_LOCK") {
+      yield {
+        step: currentStep,
+        type: "ACTION",
+        source: "ToolSandbox",
+        message: "Executing guarded tool: check_db_pool_status on orders-db replica...",
+      };
+
+      const status = await sreTools.check_db_pool_status({
+        targetService: config.targetService,
+        readOnly: true,
+      });
+
+      await new Promise((r) => setTimeout(r, 900));
+
+      yield {
+        step: currentStep,
+        type: "OBSERVATION",
+        source: "TelemetryInspector",
+        message: `Observation: Active pool connections ${status.activeConnections}/100. Discovered ${status.idleInTransaction} zombie 'idle in transaction' locks.`,
+        auditHash: status.auditHash,
+      };
+    } else if (scenario === "REDIS_OOM") {
+      yield {
+        step: currentStep,
+        type: "ACTION",
+        source: "ToolSandbox",
+        message: "Querying cache memory fragmentation and eviction metrics...",
+      };
+
+      await new Promise((r) => setTimeout(r, 900));
+
+      yield {
+        step: currentStep,
+        type: "OBSERVATION",
+        source: "TelemetryInspector",
+        message: "Observation: Maxmemory reached 98.4% capacity. Volatile-LRU eviction saturated by stale customer cart keys.",
+      };
+    } else {
+      yield {
+        step: currentStep,
+        type: "ACTION",
+        source: "ToolSandbox",
+        message: "Inspecting ingress keepalive connection pool and pod replica slots...",
+      };
+
+      await new Promise((r) => setTimeout(r, 900));
+
+      yield {
+        step: currentStep,
+        type: "OBSERVATION",
+        source: "TelemetryInspector",
+        message: "Observation: Ingress gateway replica pod count at minimum threshold (2 pods). Upstream backlog queue at 100% capacity.",
+      };
+    }
 
     await new Promise((r) => setTimeout(r, 900));
 
+    // Step 3: HITL Authorization Request
+    currentStep++;
+    if (currentStep > MAX_REACT_STEPS) throw new Error("Circuit breaker tripped: Max step cap exceeded.");
+
+    let impactDescription = "";
+    if (scenario === "POSTGRES_LOCK") {
+      impactDescription = "Terminate 4 active database sessions to drop contention";
+    } else if (scenario === "REDIS_OOM") {
+      impactDescription = "Purge 42,000 stale keys from volatile-LRU cache";
+    } else {
+      impactDescription = "Scale ingress controllers from 2 to 5 replica pods";
+    }
+
     yield {
-      step: 3,
-      type: "OBSERVATION",
-      source: "TelemetryInspector",
-      message: `Observation: Active pool connections ${status.activeConnections}/100. Discovered ${status.idleInTransaction} zombie 'idle in transaction' locks.`,
-      auditHash: status.auditHash,
+      step: currentStep,
+      type: "AWAITING_APPROVAL",
+      source: "ZeroTrustSecurityGate",
+      message: `HITL Gate Triggered: Destructive remediation '${recommendedTool}' requires human approval.`,
+      actionDetails: {
+        toolName: recommendedTool,
+        impact: impactDescription,
+      },
     };
-  } else if (scenario === "REDIS_OOM") {
-    yield {
-      step: 2,
-      type: "ACTION",
-      source: "ToolSandbox",
-      message: "Querying cache memory fragmentation and eviction metrics...",
-    };
+
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // Step 4: Remediation Execution with Guarded Rollback
+    currentStep++;
+    if (currentStep > MAX_REACT_STEPS) throw new Error("Circuit breaker tripped: Max step cap exceeded.");
+
+    if (scenario === "POSTGRES_LOCK") {
+      const res = await sreTools.terminate_zombie_sessions({
+        targetService: "orders-db",
+        maxConnectionsToKill: 4,
+        reason: "Post-approval automated Sev-1 resolution",
+      });
+
+      yield {
+        step: currentStep,
+        type: "REMEDIATION",
+        source: "RemediationExecutor",
+        message: `Remediation executed [Approved]: Terminated PIDs [${res.connectionsKilled.join(", ")}]. Active connections dropped to ${res.remainingActive}/100. Status: ${res.status}.`,
+        auditHash: res.auditHash,
+      };
+    } else if (scenario === "REDIS_OOM") {
+      const res = await sreTools.flush_volatile_cache({
+        targetService: "session-cache",
+        cacheCluster: "redis-cluster-prod",
+        keyspace: "cart_session:*",
+      });
+
+      yield {
+        step: currentStep,
+        type: "REMEDIATION",
+        source: "RemediationExecutor",
+        message: `Remediation executed [Approved]: Evicted ${res.evictedKeys} keys. Freed ${res.memoryFreedMb}MB RAM. Status: ${res.status}.`,
+        auditHash: res.auditHash,
+      };
+    } else {
+      const res = await sreTools.scale_ingress_replicas({
+        targetService: "payments-ingress",
+        targetReplicas: 5,
+      });
+
+      yield {
+        step: currentStep,
+        type: "REMEDIATION",
+        source: "RemediationExecutor",
+        message: `Remediation executed [Approved]: Ingress pods scaled from ${res.previousReplicas} -> ${res.currentReplicas}. Upstream backlog cleared.`,
+        auditHash: res.auditHash,
+      };
+    }
 
     await new Promise((r) => setTimeout(r, 900));
 
+    // Step 5: Verification & Incident Close
+    currentStep++;
     yield {
-      step: 3,
-      type: "OBSERVATION",
-      source: "TelemetryInspector",
-      message: "Observation: Maxmemory reached 98.4% capacity. Volatile-LRU eviction saturated by stale customer cart keys.",
+      step: currentStep,
+      type: "RESOLVED",
+      source: "HealthCheckService",
+      message: "Verification successful: Target service latency stabilized at 42ms. SLA thresholds compliant. Incident closed.",
     };
-  } else {
+  } catch (error: any) {
     yield {
-      step: 2,
-      type: "ACTION",
-      source: "ToolSandbox",
-      message: "Inspecting ingress keepalive connection pool and pod replica slots...",
-    };
-
-    await new Promise((r) => setTimeout(r, 900));
-
-    yield {
-      step: 3,
-      type: "OBSERVATION",
-      source: "TelemetryInspector",
-      message: "Observation: Ingress gateway replica pod count at minimum threshold (2 pods). Upstream backlog queue at 100% capacity.",
+      step: currentStep,
+      type: "ROLLBACK",
+      source: "CircuitBreakerGuard",
+      message: `Safety Halt & Rollback Triggered: ${error?.message || "Execution anomaly detected"}. State restored to snapshot. Job escalated to DLQ.`,
     };
   }
-
-  await new Promise((r) => setTimeout(r, 900));
-
-  // Step 4: Human-in-the-Loop Authorization Request
-  let impactDescription = "";
-  if (scenario === "POSTGRES_LOCK") {
-    impactDescription = "Terminate 4 active database sessions to drop contention";
-  } else if (scenario === "REDIS_OOM") {
-    impactDescription = "Purge 42,000 stale keys from volatile-LRU cache";
-  } else {
-    impactDescription = "Scale ingress controllers from 2 to 5 replica pods";
-  }
-
-  yield {
-    step: 4,
-    type: "AWAITING_APPROVAL",
-    source: "ZeroTrustSecurityGate",
-    message: `HITL Gate Triggered: Destructive remediation '${recommendedTool}' requires human approval.`,
-    actionDetails: {
-      toolName: recommendedTool,
-      impact: impactDescription,
-    },
-  };
-
-  // Wait 1.5 seconds simulating approval verification
-  await new Promise((r) => setTimeout(r, 1500));
-
-  // Step 5: Remediation Execution
-  if (scenario === "POSTGRES_LOCK") {
-    const res = await sreTools.terminate_zombie_sessions({
-      targetService: "orders-db",
-      maxConnectionsToKill: 4,
-      reason: "Post-approval automated Sev-1 resolution",
-    });
-
-    yield {
-      step: 4,
-      type: "REMEDIATION",
-      source: "RemediationExecutor",
-      message: `Remediation executed [Approved]: Terminated PIDs [${res.connectionsKilled.join(", ")}]. Active connections dropped to ${res.remainingActive}/100. Status: ${res.status}.`,
-      auditHash: res.auditHash,
-    };
-  } else if (scenario === "REDIS_OOM") {
-    const res = await sreTools.flush_volatile_cache({
-      targetService: "session-cache",
-      cacheCluster: "redis-cluster-prod",
-      keyspace: "cart_session:*",
-    });
-
-    yield {
-      step: 4,
-      type: "REMEDIATION",
-      source: "RemediationExecutor",
-      message: `Remediation executed [Approved]: Evicted ${res.evictedKeys} keys. Freed ${res.memoryFreedMb}MB RAM. Status: ${res.status}.`,
-      auditHash: res.auditHash,
-    };
-  } else {
-    const res = await sreTools.scale_ingress_replicas({
-      targetService: "payments-ingress",
-      targetReplicas: 5,
-    });
-
-    yield {
-      step: 4,
-      type: "REMEDIATION",
-      source: "RemediationExecutor",
-      message: `Remediation executed [Approved]: Ingress pods scaled from ${res.previousReplicas} -> ${res.currentReplicas}. Upstream backlog cleared.`,
-      auditHash: res.auditHash,
-    };
-  }
-
-  await new Promise((r) => setTimeout(r, 900));
-
-  // Step 6: Verification
-  yield {
-    step: 5,
-    type: "RESOLVED",
-    source: "HealthCheckService",
-    message: "Verification successful: Target service latency stabilized at 42ms. SLA thresholds compliant. Incident closed.",
-  };
 }
