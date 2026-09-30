@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { DeadLetterQueue } from "@/components/DeadLetterQueue";
 import { IncidentTerminal, TerminalLog } from "@/components/IncidentTerminal";
 import { PostMortemModal } from "@/components/PostMortemModal";
+import RunbookModal from "@/components/RunbookModal";
 import {
   AlertOctagon,
   Play,
@@ -14,6 +15,7 @@ import {
   ChevronDown,
   FileText,
   Clock,
+  PlusCircle,
 } from "lucide-react";
 
 type Scenario = "POSTGRES_LOCK" | "REDIS_OOM" | "INGRESS_TIMEOUT";
@@ -24,6 +26,7 @@ export default function IncidentDashboard() {
   const [scenario, setScenario] = useState<Scenario>("POSTGRES_LOCK");
   const [hitlPrompt, setHitlPrompt] = useState<{ toolName: string; impact: string } | null>(null);
   const [isPostMortemOpen, setIsPostMortemOpen] = useState(false);
+  const [isRunbookModalOpen, setIsRunbookModalOpen] = useState(false);
   const [hasResolved, setHasResolved] = useState(false);
 
   // Operational Telemetry Metrics
@@ -152,6 +155,7 @@ export default function IncidentDashboard() {
             <ChevronDown className="w-4 h-4 text-gray-400 absolute right-2.5 top-2.5 pointer-events-none" />
           </div>
 
+          {/* Simulate Incident Button */}
           <button
             onClick={triggerSimulation}
             disabled={isStreaming}
@@ -159,6 +163,15 @@ export default function IncidentDashboard() {
           >
             <Play className="w-4 h-4 fill-current" />
             <span>Simulate Incident</span>
+          </button>
+
+          {/* Add Runbook Modal Trigger */}
+          <button
+            onClick={() => setIsRunbookModalOpen(true)}
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-md bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-600/60 text-emerald-300 text-xs font-semibold transition-colors"
+          >
+            <PlusCircle className="w-4 h-4" />
+            <span>Add Runbook (Vector DB)</span>
           </button>
 
           {/* Post-Mortem Button */}
@@ -292,6 +305,15 @@ export default function IncidentDashboard() {
         scenario={scenario}
         mttrSeconds={elapsedSeconds}
         timelineLogs={logs.map((l) => `${l.source}: ${l.message}`)}
+      />
+
+      {/* Dynamic Runbook Registration Modal */}
+      <RunbookModal
+        isOpen={isRunbookModalOpen}
+        onClose={() => setIsRunbookModalOpen(false)}
+        onSuccess={(newRunbook) => {
+          alert(`Successfully indexed "${newRunbook.title}" (ID: ${newRunbook.id}) into Neon pgvector!`);
+        }}
       />
     </main>
   );
