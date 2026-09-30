@@ -2,6 +2,7 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import { runReActAgentLoop, ScenarioType } from "./agent.js";
 import { incidentQueue } from "./queue.js";
+import { dbPool } from "./db.js";
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -43,8 +44,6 @@ app.post("/api/dlq/:id/retry", async (req: Request, res: Response) => {
   }
 });
 
-// DLQ API: Test helper to push a poisoned job for UI verification
-// DLQ API: Test helper to push a poisoned job for UI verification
 // DLQ API: Test helper to push a poisoned job for UI verification
 app.post("/api/dlq/test-fail", async (req: Request, res: Response) => {
   try {
@@ -133,6 +132,46 @@ app.get("/api/incidents/stream", async (req: Request, res: Response) => {
     console.error("Agent execution error:", error);
     res.write("data: [DONE]\n\n");
     res.end();
+  }
+});
+
+// Runbook Management API: Register a new SRE runbook with vector embeddings
+app.post("/api/runbooks", async (req: Request, res: Response) => {
+  try {
+    const { title, description, scenarioType, recommendedTool, impactLevel, embedding } = req.body;
+
+    if (!title || !scenarioType || !recommendedTool) {
+      return res.status(400).json({ success: false, error: "Missing required fields" });
+    }
+
+    const runbookId = `RB-${Date.now().toString().slice(-4)}`;
+    // Fallback 3D vector if none supplied: normalized default [0.5, 0.5, 0.5]
+    const vectorStr = Array.isArray(embedding)
+      ? `[${embedding.join(",")}]`
+      : "[0.5, 0.5, 0.5]";
+
+    if (dbPool) {
+      const insertQuery = `
+        INSERT INTO incident_runbooks (id, title, description, scenario_type, recommended_tool, impact_level, embedding)
+        VALUES ($1, $2, $3, $4, $5, $6, $7::vector)
+        RETURNING id, title, scenario_type AS "scenarioType", recommended_tool AS "recommendedTool", impact_level AS "impactLevel";
+      `;
+      const result = await dbPool.query(insertQuery, [
+        runbookId,
+        title,
+        description || "Dynamic operator runbook",
+        scenarioType,
+        recommendedTool,
+        impactLevel || "MEDIUM",
+        vectorStr,
+      ]);
+
+      return res.json({ success: true, message: "Runbook persisted to pgvector", runbook: result.rows[0] });
+    }
+
+    res.status(503).json({ success: false, error: "Database pool not connected" });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error?.message || "Failed to save runbook" });
   }
 });
 
