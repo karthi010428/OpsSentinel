@@ -1,5 +1,6 @@
 import { sreTools } from "./tools.js";
 import { searchRunbooks } from "./knowledge.js";
+import { findNearestRunbook } from "./db.js";
 
 export type ScenarioType = "POSTGRES_LOCK" | "REDIS_OOM" | "INGRESS_TIMEOUT";
 
@@ -49,18 +50,40 @@ export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator
 
   await new Promise((r) => setTimeout(r, 800));
 
-  const [matchedRunbook] = searchRunbooks(config.embedding, 1);
-  if (!matchedRunbook) {
-    throw new Error("No matching SRE runbook found in vector database.");
+  // Query Neon PostgreSQL pgvector table via SQL cosine distance
+  const pgRunbook = await findNearestRunbook(scenario);
+
+  let runbookId = "";
+  let runbookTitle = "";
+  let runbookSimilarity = 0;
+  let recommendedTool = "";
+  let vectorSource = "Neon pgvector (HNSW)";
+
+  if (pgRunbook) {
+    runbookId = pgRunbook.id;
+    runbookTitle = pgRunbook.title;
+    runbookSimilarity = pgRunbook.similarity;
+    recommendedTool = pgRunbook.recommendedTool;
+  } else {
+    // Graceful fallback to in-memory heuristics if DB connection is unavailable
+    const [fallbackRunbook] = searchRunbooks(config.embedding, 1);
+    if (!fallbackRunbook) {
+      throw new Error("No matching SRE runbook found in vector database.");
+    }
+    runbookId = fallbackRunbook.id;
+    runbookTitle = fallbackRunbook.title;
+    runbookSimilarity = fallbackRunbook.similarityScore;
+    recommendedTool = fallbackRunbook.remediationTool;
+    vectorSource = "VectorDB (Heuristic Fallback)";
   }
 
   yield {
     step: 1,
     type: "OBSERVATION",
-    source: "VectorDB (pgvector)",
-    message: `Nearest Runbook: [${matchedRunbook.id}] "${matchedRunbook.title}" (Cosine Similarity: ${(
-      matchedRunbook.similarityScore * 100
-    ).toFixed(1)}%). Recommended Tool: ${matchedRunbook.remediationTool}`,
+    source: vectorSource,
+    message: `Nearest Runbook: [${runbookId}] "${runbookTitle}" (Cosine Similarity: ${(
+      runbookSimilarity * 100
+    ).toFixed(1)}%). Recommended Tool: ${recommendedTool}`,
   };
 
   await new Promise((r) => setTimeout(r, 800));
@@ -138,9 +161,9 @@ export async function* runReActAgentLoop(scenario: ScenarioType): AsyncGenerator
     step: 4,
     type: "AWAITING_APPROVAL",
     source: "ZeroTrustSecurityGate",
-    message: `HITL Gate Triggered: Destructive remediation '${matchedRunbook.remediationTool}' requires human approval.`,
+    message: `HITL Gate Triggered: Destructive remediation '${recommendedTool}' requires human approval.`,
     actionDetails: {
-      toolName: matchedRunbook.remediationTool,
+      toolName: recommendedTool,
       impact: impactDescription,
     },
   };
