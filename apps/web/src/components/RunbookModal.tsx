@@ -22,12 +22,11 @@ export default function RunbookModal({ isOpen, onClose, onSuccess }: RunbookModa
 
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+ const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrorMsg(null);
 
-    // Provide default 3D vector coordinates according to scenario domain
     const vectorMap: Record<string, number[]> = {
       POSTGRES_LOCK: [0.95, 0.15, 0.08],
       REDIS_OOM: [0.12, 0.94, 0.2],
@@ -37,16 +36,25 @@ export default function RunbookModal({ isOpen, onClose, onSuccess }: RunbookModa
     try {
       const res = await fetch(`${API_BASE_URL}/api/runbooks`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
         body: JSON.stringify({
           title,
-          description,
+          description: description || "Dynamic runbook entry",
           scenarioType,
           recommendedTool,
           impactLevel,
           embedding: vectorMap[scenarioType] || [0.5, 0.5, 0.5],
         }),
       });
+
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const textErr = await res.text();
+        throw new Error(`Server returned non-JSON response (${res.status}): ${textErr.slice(0, 120)}`);
+      }
 
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -61,7 +69,6 @@ export default function RunbookModal({ isOpen, onClose, onSuccess }: RunbookModa
       setIsSubmitting(false);
     }
   };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div className="relative w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-950 p-6 shadow-2xl text-zinc-100">
