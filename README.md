@@ -7,6 +7,8 @@ Cloud telemetry monitoring dashboard that simulates infrastructure incidents (da
 
 **Live demo:** [https://ops-sentinel-nu.vercel.app/](https://ops-sentinel-nu.vercel.app/)
 
+![OpsSentinel Dashboard](https://raw.githubusercontent.com/karthi010428/karthi010428/main/opssentinel.png)
+
 ## System Architecture
 
 Next.js Dashboard → Express API Gateway → Neon PostgreSQL (pgvector HNSW index for runbook similarity search) + Upstash Redis (BullMQ queues with automated Dead-Letter Queue routing).
