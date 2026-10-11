@@ -21,7 +21,10 @@ jobs:
           cache: 'npm'
 
       - name: Install Monorepo Dependencies
-        run: npm ci
+        run: npm ci || npm install --legacy-peer-deps
+
+      - name: Run API Unit Tests (Vitest)
+        run: npm run test --workspace=@opssentinel/api
 
       - name: TypeScript Static Analysis (API)
         run: npm run build --workspace=@opssentinel/api
