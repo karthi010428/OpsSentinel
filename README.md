@@ -1,6 +1,7 @@
-Here is the plain text directly with zero extra code blocks or labels around it. Copy everything below and paste it straight into your README:
 
 # OpsSentinel
+[![CI](https://github.com/karthi010428/OpsSentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/karthi010428/OpsSentinel/actions)
+
 
 Cloud telemetry monitoring dashboard that simulates infrastructure incidents (database locks, Redis memory spikes, 502 gateway timeouts) and executes automated AI runbook remediation with safety approval gates.
 
