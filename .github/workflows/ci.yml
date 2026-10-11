@@ -17,14 +17,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
-      - name: Install Monorepo Dependencies
-        run: npm ci || npm install --legacy-peer-deps
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps
 
-      - name: Run API Unit Tests (Vitest)
-        run: npm run test --workspace=@opssentinel/api
+      - name: Run API Unit Tests
+        working-directory: apps/api
+        run: npx vitest run
 
       - name: TypeScript Static Analysis (API)
         run: npm run build --workspace=@opssentinel/api
