@@ -40,3 +40,7 @@ npm run dev
 ## License
 
 MIT
+
+## Limitations and next steps
+- Uses simulated incidents, not real servers
+- Next: add login, and connect to a real metrics source
