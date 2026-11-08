@@ -1,4 +1,4 @@
-import pg from 'pg';
+import pg from "pg";
 const { Pool } = pg;
 
 const connectionString = process.env.DATABASE_URL;
@@ -6,13 +6,28 @@ const connectionString = process.env.DATABASE_URL;
 export const dbPool = connectionString
   ? new Pool({
       connectionString,
-      ssl: { rejectUnauthorized: false },
+      ssl: {
+        rejectUnauthorized: false,
+      },
       max: 10,
       idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
     })
   : null;
 
-export interface RunbookSearchResult {
+if (dbPool) {
+  dbPool.on("connect", () => {
+    console.log("[PostgreSQL] Connected to Neon pgvector cluster with SSL.");
+  });
+
+  dbPool.on("error", (err) => {
+    console.error("[PostgreSQL] Unexpected pool client connection error:", err.message);
+  });
+} else {
+  console.warn("[PostgreSQL] DATABASE_URL missing. Operating in in-memory heuristic mode.");
+}
+
+export interface RunbookRecord {
   id: string;
   title: string;
   description: string;
@@ -22,63 +37,56 @@ export interface RunbookSearchResult {
   similarity: number;
 }
 
-// Map scenarios to normalized 3D embedding vectors
-const SCENARIO_EMBEDDINGS: Record<string, string> = {
-  POSTGRES_LOCK: '[0.98, 0.12, 0.05]',
-  REDIS_OOM: '[0.15, 0.96, 0.18]',
-  INGRESS_TIMEOUT: '[0.08, 0.19, 0.97]',
-};
-
 /**
- * Executes a cosine distance query using pgvector HNSW index:
- * (1 - (embedding <=> target_vector)) converts distance to similarity (0 to 1).
+ * Searches for the nearest matching runbook using dynamic cosine distance (<=>).
+ * Accepts real 768-dimensional or arbitrary float vectors.
  */
-export async function findNearestRunbook(
-  scenarioType: string
-): Promise<RunbookSearchResult | null> {
-  if (!dbPool) {
-    return null;
-  }
+export async function findNearestRunbookByVector(
+  embeddingVector: number[],
+  scenarioType?: string
+): Promise<RunbookRecord | null> {
+  if (!dbPool) return null;
 
-  const queryVector = SCENARIO_EMBEDDINGS[scenarioType] || '[0.5, 0.5, 0.5]';
+  const vectorStr = `[${embeddingVector.join(",")}]`;
 
-  const query = `
-    SELECT 
-      id,
-      title,
-      description,
-      scenario_type AS "scenarioType",
-      recommended_tool AS "recommendedTool",
-      impact_level AS "impactLevel",
-      ROUND((1 - (embedding <=> $1::vector))::numeric, 4) AS similarity
-    FROM incident_runbooks
-    ORDER BY embedding <=> $1::vector ASC
-    LIMIT 1;
-  `;
+  // Dynamic parameterized query utilizing HNSW vector index
+  const query = scenarioType
+    ? `
+      SELECT 
+        id,
+        title,
+        description,
+        scenario_type AS "scenarioType",
+        recommended_tool AS "recommendedTool",
+        impact_level AS "impactLevel",
+        (1 - (embedding <=> $1::vector)) AS similarity
+      FROM incident_runbooks
+      WHERE scenario_type = $2
+      ORDER BY embedding <=> $1::vector ASC
+      LIMIT 1;
+    `
+    : `
+      SELECT 
+        id,
+        title,
+        description,
+        scenario_type AS "scenarioType",
+        recommended_tool AS "recommendedTool",
+        impact_level AS "impactLevel",
+        (1 - (embedding <=> $1::vector)) AS similarity
+      FROM incident_runbooks
+      ORDER BY embedding <=> $1::vector ASC
+      LIMIT 1;
+    `;
+
+  const params = scenarioType ? [vectorStr, scenarioType] : [vectorStr];
 
   try {
-    const { rows } = await dbPool.query(query, [queryVector]);
-    if (!rows.length) return null;
-
-    const row = rows[0];
-    return {
-      id: row.id,
-      title: row.title,
-      description: row.description,
-      scenarioType: row.scenarioType,
-      recommendedTool: row.recommendedTool,
-      impactLevel: row.impactLevel,
-      similarity: Number(row.similarity),
-    };
-  } catch (error) {
-    console.error('[pgvector] Query failed, falling back to heuristic:', error);
+    const result = await dbPool.query(query, params);
+    if (result.rows.length === 0) return null;
+    return result.rows[0];
+  } catch (error: any) {
+    console.error("[PostgreSQL] pgvector similarity search failed:", error.message);
     return null;
   }
 }
-// [milestone]: fix: resolve hydration mismatch on dashboard telemetry widgets
-
-// [milestone]: perf: tune postgres connection pool limits for high concurrency
-
-// [milestone]: fix: adjust keep-alive headers on sse stream
-
-// [milestone]: refactor: extract redis client initialization into singleton

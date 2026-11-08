@@ -1,79 +1,95 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Ensure process.env.DATABASE_URL is blank to avoid live pool timeouts
 process.env.DATABASE_URL = "";
+process.env.REDIS_URL = "";
+process.env.UPSTASH_REDIS_REST_URL = "";
+process.env.UPSTASH_REDIS_REST_TOKEN = "";
 
 vi.mock("../src/db.js", () => ({
-  findNearestRunbook: vi.fn().mockResolvedValue({
-    id: "rb-postgres-01",
+  findNearestRunbookByVector: vi.fn().mockResolvedValue({
+    id: "RB-001",
     title: "Deadlock Resolution Runbook",
     similarity: 0.94,
-    recommendedTool: "kill_blocking_queries",
+    recommendedTool: "terminate_zombie_sessions",
   }),
   dbPool: null,
 }));
 
 vi.mock("../src/db", () => ({
-  findNearestRunbook: vi.fn().mockResolvedValue({
-    id: "rb-postgres-01",
+  findNearestRunbookByVector: vi.fn().mockResolvedValue({
+    id: "RB-001",
     title: "Deadlock Resolution Runbook",
     similarity: 0.94,
-    recommendedTool: "kill_blocking_queries",
+    recommendedTool: "terminate_zombie_sessions",
   }),
   dbPool: null,
 }));
 
-import { runReActAgentLoop, AgentStepEvent } from "../src/agent.js";
-import { incidentQueue } from "../src/queue.js";
+import { runReActAgentLoop, AgentStepEvent, resolveApprovalDecision } from "../src/agent.js";
+import { incidentQueue, QUEUE_ACTIVE_KEY, QUEUE_DLQ_KEY } from "../src/queue.js";
 
 describe("Agent Core - Safety & HITL Verification", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
   it("enforces Zero-Trust Approval Gate before executing REMEDIATION", async () => {
     const events: AgentStepEvent[] = [];
-    const agentGen = (runReActAgentLoop as any)("POSTGRES_LOCK");
+    const agentGen = runReActAgentLoop("POSTGRES_LOCK", "INC-TEST-001");
 
-    const collectPromise = (async () => {
-      for await (const event of agentGen) {
-        events.push(event);
+    let step = await agentGen.next();
+    while (!step.done) {
+      events.push(step.value);
+      if (step.value.type === "AWAITING_APPROVAL") {
+        break;
       }
-    })();
+      step = await agentGen.next();
+    }
 
-    await vi.runAllTimersAsync();
-    await collectPromise;
+    const approvalEvent = events.find((e) => e.type === "AWAITING_APPROVAL");
+    expect(approvalEvent).toBeDefined();
+    expect(approvalEvent?.source).toMatch(/Zero-Trust|Gate/i);
+    expect(approvalEvent?.actionId).toBeDefined();
 
-    const approvalIndex = events.findIndex((e: AgentStepEvent) => e.type === "AWAITING_APPROVAL");
-    const remediationIndex = events.findIndex((e: AgentStepEvent) => e.type === "REMEDIATION");
+    resolveApprovalDecision(approvalEvent!.actionId!, "APPROVED");
+
+    step = await agentGen.next();
+    while (!step.done) {
+      events.push(step.value);
+      step = await agentGen.next();
+    }
+
+    const approvalIndex = events.findIndex((e) => e.type === "AWAITING_APPROVAL");
+    const remediationIndex = events.findIndex((e) => e.type === "REMEDIATION");
 
     expect(approvalIndex).toBeGreaterThan(-1);
     expect(remediationIndex).toBeGreaterThan(-1);
     expect(approvalIndex).toBeLessThan(remediationIndex);
-
-    const approvalEvent = events[approvalIndex];
-    // Matches ZeroTrustSecurityGate or any security gate identifier
-    expect(approvalEvent.source).toMatch(/ZeroTrust|Gate/i);
   });
 
-  it("trips Circuit Breaker when max steps limit is breached and stops remediation", async () => {
+  it("trips Circuit Breaker and triggers safe rollback when operator rejects", async () => {
     const events: AgentStepEvent[] = [];
-    // Request loop with strict 3 max steps limit
-    const agentGen = (runReActAgentLoop as any)("POSTGRES_LOCK", { maxSteps: 3, maxIterations: 3 });
+    const agentGen = runReActAgentLoop("POSTGRES_LOCK", "INC-TEST-002");
 
-    const collectPromise = (async () => {
-      for await (const event of agentGen) {
-        events.push(event);
+    let step = await agentGen.next();
+    while (!step.done) {
+      events.push(step.value);
+      if (step.value.type === "AWAITING_APPROVAL") {
+        break;
       }
-    })();
+      step = await agentGen.next();
+    }
 
-    await vi.runAllTimersAsync();
-    await collectPromise;
+    const approvalEvent = events.find((e) => e.type === "AWAITING_APPROVAL");
+    expect(approvalEvent).toBeDefined();
 
-    // Verify execution halts without reaching destructive steps or contains an error/rollback
-    const types = events.map((e: AgentStepEvent) => e.type);
-const hasHaltSignal = types.includes("ROLLBACK") || types.includes("AWAITING_APPROVAL") || events.some((e: any) => e.level === "WARN" || e.level === "ERROR");    expect(hasHaltSignal).toBe(true);
-    expect(events.length).toBeGreaterThan(0);
+    resolveApprovalDecision(approvalEvent!.actionId!, "REJECTED");
+
+    step = await agentGen.next();
+    while (!step.done) {
+      events.push(step.value);
+      step = await agentGen.next();
+    }
+
+    const rollbackEvent = events.find((e) => e.type === "ROLLBACK");
+    expect(rollbackEvent).toBeDefined();
+    expect(rollbackEvent?.level).toBe("ERROR");
   });
 });
 
@@ -82,10 +98,9 @@ describe("Queue & Dead-Letter Queue (DLQ) Manager", () => {
   let mockRedis: any;
 
   beforeEach(() => {
-    vi.useRealTimers();
     mockRedisStorage = {
-      "opssentinel:queue:incidents": [],
-      "opssentinel:queue:dlq": [],
+      [QUEUE_ACTIVE_KEY]: [],
+      [QUEUE_DLQ_KEY]: [],
     };
 
     mockRedis = {

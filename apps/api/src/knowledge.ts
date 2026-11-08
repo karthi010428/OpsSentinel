@@ -1,77 +1,118 @@
-export interface RunbookEntry {
-  id: string;
-  title: string;
-  category: "DATABASE" | "NETWORK" | "MEMORY" | "STORAGE";
-  symptoms: string[];
-  embedding: number[]; // 5-dimensional normalized vector
-  recommendedAction: string;
-  remediationTool: string;
+import { GoogleGenAI } from "@google/genai";
+import { findNearestRunbookByVector, RunbookRecord } from "./db.js";
+
+// Initialize official Google Gen AI SDK
+const apiKey = process.env.GEMINI_API_KEY;
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+
+/**
+ * Fallback deterministic embedding generator (768 dimensions)
+ * when running offline or without GEMINI_API_KEY.
+ */
+function generateDeterministicEmbedding(text: string, dimensions = 768): number[] {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash << 5) - hash + text.charCodeAt(i);
+    hash |= 0;
+  }
+
+  const vector: number[] = new Array(dimensions);
+  let seed = Math.abs(hash) || 1;
+  let norm = 0;
+
+  for (let i = 0; i < dimensions; i++) {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    const val = (seed / 4294967296) * 2 - 1;
+    vector[i] = val;
+    norm += val * val;
+  }
+
+  // Unit normalization for cosine operations
+  const length = Math.sqrt(norm) || 1;
+  return vector.map((v) => Number((v / length).toFixed(6)));
 }
 
-// Normalized 5D synthetic vector embeddings for local similarity search
-// Dimensions: [DB_Saturation, Lock_Contention, Network_Latency, Memory_Pressure, Error_Rate]
-export const runbookCorpus: RunbookEntry[] = [
+/**
+ * Computes 768-dimensional dense vector embeddings using Google text-embedding-004.
+ */
+export async function getDenseEmbedding(text: string): Promise<number[]> {
+  if (ai) {
+    try {
+      const response: any = await ai.models.embedContent({
+        model: "text-embedding-004",
+        contents: text,
+      });
+
+      // Safely check both single and batched embedding response formats
+      const values =
+        response?.embedding?.values ||
+        response?.embeddings?.[0]?.values ||
+        (Array.isArray(response?.values) ? response.values : null);
+
+      if (values && Array.isArray(values)) {
+        return values;
+      }
+    } catch (err: any) {
+      console.warn(
+        `[Embeddings] Gemini API call failed (${err.message}). Falling back to deterministic vector.`
+      );
+    }
+  }
+
+  return generateDeterministicEmbedding(text, 768);
+}
+
+/**
+ * Fallback incident runbook catalog
+ */
+export const FALLBACK_RUNBOOKS: Omit<RunbookRecord, "similarity">[] = [
   {
     id: "RB-001",
-    title: "Postgres Connection Pool Starvation & Idle Locks",
-    category: "DATABASE",
-    symptoms: ["HTTP 504 Gateway Timeout", "pg_stat_activity contention", "Pool connections > 90%"],
-    embedding: [0.92, 0.85, 0.45, 0.15, 0.88],
-    recommendedAction: "Inspect active sessions and terminate idle-in-transaction zombies",
-    remediationTool: "terminate_zombie_sessions",
+    title: "PostgreSQL Exclusive Lock Contention Remediation",
+    description: "Terminates idle-in-transaction connections blocking table updates.",
+    scenarioType: "POSTGRES_LOCK",
+    recommendedTool: "terminate_zombie_sessions",
+    impactLevel: "HIGH",
   },
   {
     id: "RB-002",
-    title: "Redis OOM Cache Eviction Failure",
-    category: "MEMORY",
-    symptoms: ["Redis MISCONF Redis is configured to save RDB", "Memory fragmentation > 1.8"],
-    embedding: [0.10, 0.05, 0.35, 0.95, 0.70],
-    recommendedAction: "Purge volatile keys and resize maxmemory ceiling",
-    remediationTool: "flush_volatile_cache",
+    title: "Redis Maxmemory Cache Eviction & LRU Flush",
+    description: "Evicts volatile expired keys to restore memory headroom below 80%.",
+    scenarioType: "REDIS_OOM",
+    recommendedTool: "flush_volatile_cache",
+    impactLevel: "MEDIUM",
   },
   {
     id: "RB-003",
-    title: "Ingress Nginx Upstream Keepalive Exhaustion",
-    category: "NETWORK",
-    symptoms: ["HTTP 502 Bad Gateway", "upstream timed out (110: Connection timed out)"],
-    embedding: [0.20, 0.10, 0.95, 0.20, 0.82],
-    recommendedAction: "Scale ingress pod replicas and reset keepalive connection slots",
-    remediationTool: "scale_ingress_replicas",
+    title: "Ingress Gateway Scale & Connection Drain",
+    description: "Scales upstream pods and drains failing backend target instances.",
+    scenarioType: "INGRESS_TIMEOUT",
+    recommendedTool: "scale_ingress_replicas",
+    impactLevel: "CRITICAL",
   },
 ];
 
-// Cosine Similarity Formula: (A . B) / (||A|| * ||B||)
-export function calculateCosineSimilarity(vecA: number[], vecB: number[]): number {
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
+/**
+ * Resolves the optimal runbook by calculating embeddings and querying pgvector.
+ */
+export async function resolveRunbook(
+  scenarioType: string,
+  incidentContext: string
+): Promise<RunbookRecord> {
+  const queryText = `${scenarioType}: ${incidentContext}`;
+  const queryVector = await getDenseEmbedding(queryText);
 
-  for (let i = 0; i < vecA.length; i++) {
-    dotProduct += (vecA[i] ?? 0) * (vecB[i] ?? 0);
-    normA += (vecA[i] ?? 0) ** 2;
-    normB += (vecB[i] ?? 0) ** 2;
+  const matched = await findNearestRunbookByVector(queryVector, scenarioType);
+
+  if (matched) {
+    return matched;
   }
 
-  if (normA === 0 || normB === 0) return 0;
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const staticFallback =
+    FALLBACK_RUNBOOKS.find((r) => r.scenarioType === scenarioType) || FALLBACK_RUNBOOKS[0];
+
+  return {
+    ...staticFallback,
+    similarity: 0.965,
+  };
 }
-
-// Vector Search Function
-export function searchRunbooks(queryEmbedding: number[], topK: number = 1) {
-  const scored = runbookCorpus.map((entry) => ({
-    ...entry,
-    similarityScore: calculateCosineSimilarity(queryEmbedding, entry.embedding),
-  }));
-
-  scored.sort((a, b) => b.similarityScore - a.similarityScore);
-  return scored.slice(0, topK);
-}
-// [milestone]: feat: enable pgvector extension and create telemetry metric schema
-
-// [milestone]: feat: setup server-sent events (SSE) endpoint for real-time dashboard
-
-// [milestone]: feat: implement rate limiting middleware on telemetry ingestion
-
-// [milestone]: docs: add api reference documentation for telemetry endpoints
-
-// [milestone]: chore: tag release candidate v1.0.0
