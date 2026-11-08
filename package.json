@@ -2,6 +2,7 @@
   "name": "opssentinel-root",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@10.8.2",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -11,7 +12,9 @@
     "dev:web": "npm run dev --workspace=@opssentinel/web",
     "build:api": "npm run build --workspace=@opssentinel/api",
     "build:web": "npm run build --workspace=@opssentinel/web",
-    "test": "npm run test --workspace=@opssentinel/api"
+    "build": "npm run build:web",
+    "test": "npx --prefix apps/api vitest run",
+    "lint": "npm run lint --workspace=@opssentinel/web"
   },
   "devDependencies": {
     "prettier": "^3.3.3"
